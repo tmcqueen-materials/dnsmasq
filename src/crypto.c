@@ -30,6 +30,10 @@
 #define MIN_VERSION(major, minor) ((NETTLE_VERSION_MAJOR == (major) && NETTLE_VERSION_MINOR >= (minor)) || \
 				   (NETTLE_VERSION_MAJOR > (major)))
 
+#ifdef HAVE_MLDSA
+#include "mldsa_native/mldsa_native.h"
+#endif
+
 #include <nettle/rsa.h>
 #include <nettle/ecdsa.h>
 #include <nettle/ecc-curve.h>
@@ -40,7 +44,7 @@
 #  include <nettle/gostdsa.h>
 #endif
 
-#if MIN_VERSION(3, 1)
+#if MIN_VERSION(3, 1) || defined(HAVE_MLDSA)
 /* Implement a "hash-function" to the nettle API, which simply returns
    the input data, concatenated into a single, statically maintained, buffer.
 
@@ -371,6 +375,37 @@ static int dnsmasq_eddsa_verify(struct blockdata *key_data, unsigned int key_len
 }
 #endif
 
+
+#ifdef HAVE_MLDSA
+static int dnsmasq_mldsa_verify(struct blockdata *key_data, unsigned int key_len, 
+                                unsigned char *sig, size_t sig_len,
+                                unsigned char *digest, size_t digest_len, int algo)
+{
+  unsigned char *p;
+   
+  if (digest_len != sizeof(struct null_hash_digest) ||
+      !(p = blockdata_retrieve(key_data, key_len, NULL)))
+    return 0;
+  
+  /* The "digest" returned by the null_hash function is simply a struct null_hash_digest
+     which has a pointer to the actual data and a length, because the buffer
+     may need to be extended during "hashing". */
+  
+  switch (algo)
+    {
+    case 18:
+      if (key_len != MLDSA44_PUBLICKEYBYTES ||
+          sig_len != MLDSA44_BYTES)
+        return 0;
+
+      return !mldsa_verify(sig, ((struct null_hash_digest *)digest)->buff, ((struct null_hash_digest *)digest)->len, NULL, 0, p);
+    }
+
+  return 0;
+}
+#endif
+
+
 static int (*verify_func(int algo))(struct blockdata *key_data, unsigned int key_len, unsigned char *sig, size_t sig_len,
 			     unsigned char *digest, size_t digest_len, int algo)
 {
@@ -401,6 +436,11 @@ static int (*verify_func(int algo))(struct blockdata *key_data, unsigned int key
 #if MIN_VERSION(3, 6)
     case 16:
       return dnsmasq_eddsa_verify;
+#endif
+
+#ifdef HAVE_MLDSA
+    case 18:
+      return dnsmasq_mldsa_verify;
 #endif
     }
   
@@ -466,6 +506,9 @@ char *algo_digest_name(int algo)
     case 16: return "null_hash";  /* ED448 */
 #  endif
 #endif
+#ifdef HAVE_MLDSA
+    case 18: return "null_hash";  /* MLDSA44 */
+#endif
     default: return NULL;
     }
 }
@@ -486,7 +529,7 @@ const struct nettle_hash *hash_find(char *name)
   if (!name)
     return NULL;
   
-#if MIN_VERSION(3,1) && defined(HAVE_DNSSEC)
+#if (MIN_VERSION(3,1) || defined(HAVE_MLDSA)) && defined(HAVE_DNSSEC)
   /* We provide a "null" hash which returns the input data as digest. */
   if (strcmp(null_hash.name, name) == 0)
     return &null_hash;

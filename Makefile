@@ -63,6 +63,9 @@ ct_cflags =     `echo $(COPTS) | $(top)/bld/pkg-wrapper HAVE_CONNTRACK $(PKG_CON
 ct_libs =       `echo $(COPTS) | $(top)/bld/pkg-wrapper HAVE_CONNTRACK $(PKG_CONFIG) --libs libnetfilter_conntrack`
 lua_cflags =    `echo $(COPTS) | $(top)/bld/pkg-wrapper HAVE_LUASCRIPT $(PKG_CONFIG) --cflags $(LUA)` 
 lua_libs =      `echo $(COPTS) | $(top)/bld/pkg-wrapper HAVE_LUASCRIPT $(PKG_CONFIG) --libs $(LUA)` 
+mldsa_cflags =  `echo $(COPTS) | $(top)/bld/pkg-wrapper HAVE_MLDSA '' --copy '-I$(top)/$(SRC)/mldsa_native/'`
+mldsa_build =   $(shell echo $(COPTS) | $(top)/bld/pkg-wrapper HAVE_MLDSA '' --copy 'mldsa')
+mldsa_libs =    `echo $(COPTS) | $(top)/bld/pkg-wrapper HAVE_MLDSA '' --copy '$(top)/$(SRC)/mldsa_native/mldsa_native44.o'`
 nettle_cflags = `echo $(COPTS) | $(top)/bld/pkg-wrapper HAVE_DNSSEC     $(PKG_CONFIG) --cflags 'nettle hogweed'`
 nettle_libs =   `echo $(COPTS) | $(top)/bld/pkg-wrapper HAVE_DNSSEC     $(PKG_CONFIG) --libs 'nettle hogweed'`
 gmp_libs =      `echo $(COPTS) | $(top)/bld/pkg-wrapper HAVE_DNSSEC NO_GMP --copy -lgmp`
@@ -89,8 +92,8 @@ hdrs = dnsmasq.h config.h dhcp-protocol.h dhcp6-protocol.h \
 all : $(BUILDDIR)
 	@cd $(BUILDDIR) && $(MAKE) \
  top="$(top)" \
- build_cflags="$(version) $(dbus_cflags) $(idn2_cflags) $(idn_cflags) $(ct_cflags) $(lua_cflags) $(nettle_cflags) $(nft_cflags)" \
- build_libs="$(dbus_libs) $(idn2_libs) $(idn_libs) $(ct_libs) $(lua_libs) $(sunos_libs) $(nettle_libs) $(gmp_libs) $(ubus_libs) $(nft_libs)" \
+ build_cflags="$(version) $(dbus_cflags) $(idn2_cflags) $(idn_cflags) $(ct_cflags) $(lua_cflags) $(mldsa_cflags) $(nettle_cflags) $(nft_cflags)" \
+ build_libs="$(dbus_libs) $(idn2_libs) $(idn_libs) $(ct_libs) $(lua_libs) $(sunos_libs) $(mldsa_libs) $(nettle_libs) $(gmp_libs) $(ubus_libs) $(nft_libs)" \
  -f $(top)/Makefile dnsmasq 
 
 mostly_clean :
@@ -112,8 +115,8 @@ all-i18n : $(BUILDDIR)
 	@cd $(BUILDDIR) && $(MAKE) \
  top="$(top)" \
  i18n=-DLOCALEDIR=\'\"$(LOCALEDIR)\"\' \
- build_cflags="$(version) $(dbus_cflags) $(idn2_cflags) $(idn_cflags) $(ct_cflags) $(lua_cflags) $(nettle_cflags) $(nft_cflags)" \
- build_libs="$(dbus_libs) $(idn2_libs) $(idn_libs) $(ct_libs) $(lua_libs) $(sunos_libs) $(nettle_libs) $(gmp_libs) $(ubus_libs) $(nft_libs)"  \
+ build_cflags="$(version) $(dbus_cflags) $(idn2_cflags) $(idn_cflags) $(ct_cflags) $(lua_cflags) $(mldsa_cflags) $(nettle_cflags) $(nft_cflags)" \
+ build_libs="$(dbus_libs) $(idn2_libs) $(idn_libs) $(ct_libs) $(lua_libs) $(sunos_libs) $(mldsa_libs) $(nettle_libs) $(gmp_libs) $(ubus_libs) $(nft_libs)"  \
  -f $(top)/Makefile dnsmasq
 	for f in `cd $(PO); echo *.po`; do \
 		cd $(top) && cd $(BUILDDIR) && $(MAKE) top="$(top)" -f $(top)/Makefile $${f%.po}.mo; \
@@ -166,8 +169,11 @@ $(objs): $(copts_conf) $(hdrs)
 .c.o:
 	$(CC) $(CFLAGS) $(COPTS) $(i18n) $(build_cflags) $(RPM_OPT_FLAGS) -c $<	
 
-dnsmasq : $(objs)
-	$(CC) $(LDFLAGS) -o $@ $(objs) $(build_libs) $(LIBS) 
+dnsmasq : $(objs) $(mldsa_build)
+	$(CC) $(LDFLAGS) -o $@ $(objs) $(build_libs) $(LIBS)
+
+mldsa : $(top)/$(SRC)/mldsa_native/mldsa_native.c
+	$(CC) -c $(CFLAGS) -DMLD_CONFIG_PARAMETER_SET=44 -I$(top)/$(SRC)/mldsa_native/ $^ -o $(top)/$(SRC)/mldsa_native/mldsa_native44.o
 
 dnsmasq.pot : $(objs:.o=.c) $(hdrs)
 	$(XGETTEXT) -d dnsmasq --foreign-user --omit-header --keyword=_ -o $@ -i $(objs:.o=.c)
